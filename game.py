@@ -8,7 +8,7 @@ from random import choice, randint
 
 def center(wh):
     w,h = wh
-    return (int(w/2), int(h/2))
+    return (half(w), half(h))
 
 def half(f):
     return int(f/2)
@@ -16,11 +16,9 @@ def half(f):
 SCREEN_WIDTH = 800
 SCREEN_HEIGH = 600
 SCREEN = (SCREEN_WIDTH, SCREEN_HEIGH)
+SCREEN_CENTER = center(SCREEN)
 
-FPS = 60
-
-
-MARGIN = 25
+MARGIN = 20
 MARGIN_L = MARGIN
 MARGIN_R = SCREEN_WIDTH - MARGIN
 MARGIN_T = MARGIN
@@ -40,10 +38,15 @@ def rand_pos():
     y = randint(MARGIN_T, MARGIN_B)
     return x,y
 
+ENTITY_WIDTH = MARGIN * 2
+ENTITY_HEIGHT = ENTITY_WIDTH
+ENTITY_SIZE = (ENTITY_WIDTH,ENTITY_HEIGHT)
+ENTITY_CENTER = center(ENTITY_SIZE)
+
+# velocity vector visual
 VECTOR_COLOR = 'green'
 VECTOR_SCALE = 10
 
-# TODO: draw vectors arrow
 def draw_vector(screen, point, value):
     x,y = point
     dx,dy = value
@@ -60,80 +63,85 @@ ENTITY_CENTER = center(ENTITY_SIZE)
 
 EntityState = Enum('EntityState', 'STOP MOVE')
 
-def rand_enum(s):
-    return choice(list(s))
-
 
 class Ball(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        # pygame.sprites.Sprite.__init__(self)
-        # NOTE: physics accurateed value my not work as expected
-        #       need to investigate more
-        self.x, self.y = rand_pos()
-        self.vx, self.vy = (randint(-10,10),randint(-10,10))
-        self.ax, self.ay = (0,0.1)
+
+        self.pos = pygame.Vector2(rand_pos())
+        self.vel = pygame.Vector2(0,0)
+        self.acl = pygame.Vector2(0,0)
 
         self.image = pygame.Surface(ENTITY_SIZE, pygame.SRCALPHA)
         self.rect = self.image.get_rect()
-        self.rect.centerx = self.x
-        self.rect.centery = self.y
 
-    def update(self, delta_t):
-        def is_vzero(v):
-            VZ_TSH = 0.1
-            return abs(v) < VZ_TSH
-        def is_stop():
-            return is_vzero(self.vx) and is_vzero(self.vy)
+        self.state = EntityState.STOP
 
-        self.state = EntityState.STOP if is_stop() else EntityState.MOVE
+    def update(self, delta_t, target):
+        self.target = pygame.Vector2(target)
+        self.heading = (self.target - self.pos).normalize()
 
-        # NOTE: the microsec (/1000) timestep cause numerical instability
-        #       less problem when velocity magnitude is low
-        #       current acceleration is hand-tune
-        self.vy += self.ay * delta_t / 10
-        self.y += self.vy * delta_t / 10
-        self.vx += self.ax * delta_t / 10
-        self.x += self.vx * delta_t / 10
-        # print('ball update', delta_t, self.y, self.vy)
+        if (self.pos - self.target).magnitude() < half(ENTITY_WIDTH):
+            self.vel.update((0,0))
+            self.state = EntityState.STOP
+        else:
+            self.state = EntityState.MOVE
 
-        # floor resistance (when ball is sliding on the floor)
-        if is_vzero(self.vy):
-            self.vx = self.vx * 0.8
+        def do_physics():
+            ## constant acceleration
+            self.acl = self.heading * 100
+            self.vel += self.acl * delta_t
 
-        # check for screen bound and bouncing
-        # vertical wall is slipper (less momentum lossed)
-        # while horizontal wall have more resistance
-        if self.y >= SCREEN_HEIGH - ENTITY_WIDTH:
-            self.y = SCREEN_HEIGH - ENTITY_WIDTH
-            self.vy = - self.vy * 0.8
-        elif self.y <= ENTITY_WIDTH:
-            self.y = ENTITY_WIDTH
-            self.vy = - self.vy * 0.8
+            # constant speed movement
+            # SPEED = 200
+            # self.vel += self.heading * SPEED * delta_t
 
-        if self.x <= ENTITY_WIDTH:
-            self.x = ENTITY_WIDTH
-            self.vx = - self.vx * 0.95
-        elif self.x >= SCREEN_WIDTH - ENTITY_WIDTH:
-            self.x = SCREEN_WIDTH - ENTITY_WIDTH
-            self.vx = - self.vx * 0.95
+            self.pos += self.vel * delta_t
 
+        def apply_constrain():
+            # don't move beyond margin box
+            # slow down and bounce back
+            if self.pos.x <= MARGIN_L:
+                self.vel.reflect_ip(pygame.Vector2(1,0))
+                self.vel *= 0.8
+            elif self.pos.x >= MARGIN_R:
+                self.vel.reflect_ip(pygame.Vector2(-1,0))
+                self.vel *= 0.8
 
-        font = pygame.font.SysFont('sans', 15)
-        vy_text = font.render(f'vy:{self.vy:.0f}', False,
-          'green' if self.vy > 0 else 'blue')
-        vx_text = font.render(f'vx:{self.vx:.0f}', False,
-          'green' if self.vy > 0 else 'blue')
+            if self.pos.y <= MARGIN_T:
+                self.vel.reflect_ip(pygame.Vector2(0,1))
+                self.vel *= 0.8
+            elif self.pos.y >= MARGIN_B:
+                self.vel.reflect_ip(pygame.Vector2(0,-1))
+                self.vel *= 0.8
 
-        half_w = half(ENTITY_WIDTH)
-        self.image.fill((255,255,255,1))
-        pygame.draw.circle(self.image, 'red' if self.state == EntityState.MOVE else 'pink',
-                ENTITY_CENTER, half_w)
-        self.image.blit(vx_text, (0,0))
-        self.image.blit(vy_text, (0,20))
-        draw_vector(self.image, ENTITY_CENTER, (self.vx,self.vy))
-        self.rect.centery = self.y
-        self.rect.centerx = self.x
+        def draw_ball():
+            half_w = half(ENTITY_WIDTH)
+            self.image.fill((255,255,255,1))
+            pygame.draw.circle(self.image, 'red' if self.state == EntityState.MOVE else 'pink',
+                    ENTITY_CENTER, half_w)
+
+        def draw_vel():
+            font = pygame.font.SysFont('sans', 12)
+            vy_text = font.render(f'vy:{self.vel.y:+.1f}', False,
+              'green' if self.vel.y > 0 else 'blue')
+            vx_text = font.render(f'vx:{self.vel.x:+.1f}', False,
+              'green' if self.vel.x > 0 else 'blue')
+            self.image.blit(vx_text, (0,0))
+            self.image.blit(vy_text, (0,20))
+
+            draw_vector(self.image, ENTITY_CENTER, (self.vel.x,self.vel.y))
+            draw_vector(self.image, ENTITY_CENTER, self.heading)
+
+        draw_ball()
+
+        if self.state == EntityState.MOVE:
+            do_physics()
+            draw_vel()
+
+        apply_constrain()
+        self.rect.center = int(self.pos.x), int(self.pos.y)
+
 
 
 GameState = Enum('GameState', 'Load Run Quit')
@@ -145,12 +153,17 @@ class Game():
 
     def run(self):
         self.state = GameState.Run
-        clock = pygame.time.Clock()
-        screen = pygame.display.set_mode(SCREEN)
 
-        sprites = pygame.sprite.Group()
+        target = (SCREEN_CENTER)
+        def draw_target():
+            pygame.draw.circle(screen, 'green', target, 5)
+
+        screen = pygame.display.set_mode(SCREEN)
+        clock = pygame.time.Clock()
+
+        balls = pygame.sprite.Group()
         for _ in range(10):
-            sprites.add(Ball())
+            balls.add(Ball())
 
         while self.state == GameState.Run:
             if pygame.event.get(pygame.QUIT):
@@ -159,12 +172,19 @@ class Game():
             if pygame.key.get_pressed()[pygame.K_ESCAPE]:
                 self.state = GameState.Quit
 
-            delta_t = clock.tick(FPS)
+            delta_t = clock.tick(FPS) / 1000
 
             screen.fill('grey')
+            draw_magin(screen)
 
-            sprites.update(delta_t)
-            sprites.draw(screen)
+            draw_target()
+
+            for b in balls:
+                if b.state == EntityState.STOP:
+                    target = rand_pos()
+
+            balls.update(delta_t, target)
+            balls.draw(screen)
 
             pygame.display.update()
 
