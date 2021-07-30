@@ -4,7 +4,7 @@
 import pygame
 
 from enum import Enum
-from random import choice, randint
+from random import randint
 
 def center(wh):
     w,h = wh
@@ -18,7 +18,7 @@ SCREEN_HEIGH = 600
 SCREEN = (SCREEN_WIDTH, SCREEN_HEIGH)
 SCREEN_CENTER = center(SCREEN)
 
-MARGIN = 20
+MARGIN = 25
 MARGIN_L = MARGIN
 MARGIN_R = SCREEN_WIDTH - MARGIN
 MARGIN_T = MARGIN
@@ -61,7 +61,7 @@ ENTITY_HEIGHT = ENTITY_WIDTH
 ENTITY_SIZE = (ENTITY_WIDTH,ENTITY_HEIGHT)
 ENTITY_CENTER = center(ENTITY_SIZE)
 
-EntityState = Enum('EntityState', 'STOP MOVE')
+EntityState = Enum('EntityState', 'STOP MOVE EAT')
 
 
 class Ball(pygame.sprite.Sprite):
@@ -76,6 +76,7 @@ class Ball(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
 
         self.state = EntityState.STOP
+        self.health = 100
 
     def update(self, delta_t, target):
         self.target = pygame.Vector2(target)
@@ -83,6 +84,9 @@ class Ball(pygame.sprite.Sprite):
 
         if (self.pos - self.target).magnitude() < half(ENTITY_WIDTH):
             self.vel.update((0,0))
+            self.state = EntityState.EAT
+            self.health += 10
+        elif self.health <= 0:
             self.state = EntityState.STOP
         else:
             self.state = EntityState.MOVE
@@ -96,7 +100,9 @@ class Ball(pygame.sprite.Sprite):
             # SPEED = 200
             # self.vel += self.heading * SPEED * delta_t
 
-            self.pos += self.vel * delta_t
+            delta_p = self.vel * delta_t
+            self.pos += delta_p
+            self.health -= delta_p.magnitude() * 0.01
 
         def apply_constrain():
             # don't move beyond margin box
@@ -118,9 +124,16 @@ class Ball(pygame.sprite.Sprite):
         def draw_ball():
             half_w = half(ENTITY_WIDTH)
             self.image.fill((255,255,255,1))
-            pygame.draw.circle(self.image, 'red' if self.state == EntityState.MOVE else 'pink',
-                    ENTITY_CENTER, half_w)
+            colors = {
+                EntityState.STOP: 'grey',
+                EntityState.MOVE: 'red',
+                EntityState.EAT: 'blue'
+                }
+            color = colors[self.state]
+            pygame.draw.circle(self.image, color, ENTITY_CENTER, half_w)
+            self.rect.center = int(self.pos.x), int(self.pos.y)
 
+        # TODO: move to overlay layer
         def draw_vel():
             font = pygame.font.SysFont('sans', 12)
             vy_text = font.render(f'vy:{self.vel.y:+.1f}', False,
@@ -133,14 +146,20 @@ class Ball(pygame.sprite.Sprite):
             draw_vector(self.image, ENTITY_CENTER, (self.vel.x,self.vel.y))
             draw_vector(self.image, ENTITY_CENTER, self.heading)
 
-        draw_ball()
+        def draw_health():
+            font = pygame.font.SysFont('sans', 12)
+            text = font.render(f'h:{self.health:.0f}', False, 'green' if self.health > 10 else 'blue')
+            text_rect = text.get_rect()
+            text_rect.center = ENTITY_CENTER
+            self.image.blit(text, text_rect)
 
-        if self.state == EntityState.MOVE:
+        if self.state != EntityState.STOP:
             do_physics()
-            draw_vel()
+            # draw_vel()
 
+        draw_ball()
+        draw_health()
         apply_constrain()
-        self.rect.center = int(self.pos.x), int(self.pos.y)
 
 
 
@@ -179,8 +198,12 @@ class Game():
 
             draw_target()
 
+            # if randint(1,100) == 5:
+            #     target = rand_pos()
+
+            # pop a new food if somebody ate it
             for b in balls:
-                if b.state == EntityState.STOP:
+                if b.state == EntityState.EAT:
                     target = rand_pos()
 
             balls.update(delta_t, target)
