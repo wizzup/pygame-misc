@@ -43,25 +43,17 @@ ENTITY_HEIGHT = ENTITY_WIDTH
 ENTITY_SIZE = (ENTITY_WIDTH,ENTITY_HEIGHT)
 ENTITY_CENTER = center(ENTITY_SIZE)
 
+EntityState = Enum('EntityState', 'STOP MOVE EAT')
+
 # velocity vector visual
 VECTOR_COLOR = 'green'
-VECTOR_SCALE = 10
 
-def draw_vector(screen, point, value):
+def draw_vector(screen, point, value, scale):
     x,y = point
     dx,dy = value
-    s = VECTOR_SCALE
-    h = (x+dx*s, y+dy*s)
+    h = (x+dx*scale, y+dy*scale)
     pygame.draw.line(screen, VECTOR_COLOR, point, h, 1)
     pygame.draw.circle(screen, VECTOR_COLOR, h, 2)
-
-
-ENTITY_WIDTH = MARGIN * 2
-ENTITY_HEIGHT = ENTITY_WIDTH
-ENTITY_SIZE = (ENTITY_WIDTH,ENTITY_HEIGHT)
-ENTITY_CENTER = center(ENTITY_SIZE)
-
-EntityState = Enum('EntityState', 'STOP MOVE EAT')
 
 
 class Ball(pygame.sprite.Sprite):
@@ -133,19 +125,6 @@ class Ball(pygame.sprite.Sprite):
             pygame.draw.circle(self.image, color, ENTITY_CENTER, half_w)
             self.rect.center = int(self.pos.x), int(self.pos.y)
 
-        # TODO: move to overlay layer
-        def draw_vel():
-            font = pygame.font.SysFont('sans', 12)
-            vy_text = font.render(f'vy:{self.vel.y:+.1f}', False,
-              'green' if self.vel.y > 0 else 'blue')
-            vx_text = font.render(f'vx:{self.vel.x:+.1f}', False,
-              'green' if self.vel.x > 0 else 'blue')
-            self.image.blit(vx_text, (0,0))
-            self.image.blit(vy_text, (0,20))
-
-            draw_vector(self.image, ENTITY_CENTER, (self.vel.x,self.vel.y))
-            draw_vector(self.image, ENTITY_CENTER, self.heading)
-
         def draw_health():
             font = pygame.font.SysFont('sans', 12)
             text = font.render(f'h:{self.health:.0f}', False, 'green' if self.health > 10 else 'blue')
@@ -155,7 +134,6 @@ class Ball(pygame.sprite.Sprite):
 
         if self.state != EntityState.STOP:
             do_physics()
-            # draw_vel()
 
         draw_ball()
         draw_health()
@@ -170,6 +148,8 @@ class Game():
         self.state = GameState.Load
         pygame.init()
 
+        self.objects = {}
+
     def run(self):
         self.state = GameState.Run
 
@@ -181,8 +161,18 @@ class Game():
         clock = pygame.time.Clock()
 
         balls = pygame.sprite.Group()
-        for _ in range(10):
-            balls.add(Ball())
+        for i in range(10):
+            b = Ball()
+            balls.add(b)
+            self.objects[i] = b
+
+        def draw_vel(o):
+            font = pygame.font.SysFont('sans', 12)
+            v_text = font.render(f'({o.vel.y: 4.0f},{o.vel.y: 4.0f})', False, 'blue')
+            screen.blit(v_text, o.pos + (30, -10))
+
+            draw_vector(screen, o.pos, (o.vel.x,o.vel.y), 0.3)
+            draw_vector(screen, o.pos, o.heading, 25)
 
         while self.state == GameState.Run:
             if pygame.event.get(pygame.QUIT):
@@ -207,6 +197,11 @@ class Game():
                     target = rand_pos()
 
             balls.update(delta_t, target)
+
+            for o in self.objects.values():
+                # print(o)
+                draw_vel(o)
+
             balls.draw(screen)
 
             pygame.display.update()
